@@ -17,12 +17,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 
 	pbempty "github.com/golang/protobuf/ptypes/empty"
 	"github.com/pulumi/pulumi/pkg/v3/resource/provider"
+	"github.com/pulumi/pulumi/sdk/go/common/tokens"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
+	pulumirpc "github.com/pulumi/pulumi/sdk/v3/go/common/resource/plugin"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/util/cmdutil"
 	rpc "github.com/pulumi/pulumi/sdk/v3/proto/go"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,10 +39,11 @@ import (
 var version string
 
 func main() {
+	log.Printf("Running the dev version of the kubes portforward provider")
 	err := provider.Main("kubernetes-proxy", func(host *provider.HostClient) (rpc.ResourceProviderServer, error) {
-		return &kubernetesProxyProvider{
+		return pulumirpc.NewProviderServer(&kubernetesProxyProvider{
 			host: host,
-		}, nil
+		}), nil
 	})
 	if err != nil {
 		cmdutil.ExitError(err.Error())
@@ -49,6 +53,8 @@ func main() {
 type kubernetesProxyProvider struct {
 	host *provider.HostClient
 }
+
+var _ pulumirpc.Provider = &kubernetesProxyProvider{}
 
 func (k *kubernetesProxyProvider) CheckConfig(ctx context.Context, req *rpc.CheckRequest) (*rpc.CheckResponse, error) {
 	return &rpc.CheckResponse{Inputs: req.GetNews()}, nil
@@ -106,6 +112,7 @@ func (k *kubernetesProxyProvider) Configure(ctx context.Context, req *rpc.Config
 			fmt.Fprintf(os.Stderr, "failed forwarding ports: %v", err)
 			os.Exit(1)
 		}
+		log.Println("The portforward exited (with no error!), something is odd!")
 	}()
 	<-readyCh
 	return &rpc.ConfigureResponse{}, nil
@@ -116,14 +123,20 @@ func (k *kubernetesProxyProvider) Invoke(_ context.Context, req *rpc.InvokeReque
 	return nil, fmt.Errorf("Unknown Invoke token '%s'", tok)
 }
 
+func (k *kubernetesProxyProvider) Call(tok tokens.ModuleMember, args resource.PropertyMap, info CallInfo,
+	options CallOptions) (*rpc.CallResult, error) {
+	tok := req.GetTok()
+	return nil, fmt.Errorf("Unknown Invoke token '%s'", tok)
+}
+
 func (k *kubernetesProxyProvider) StreamInvoke(req *rpc.InvokeRequest, server rpc.ResourceProvider_StreamInvokeServer) error {
 	tok := req.GetTok()
 	return fmt.Errorf("Unknown StreamInvoke token '%s'", tok)
 }
 
 func (k *kubernetesProxyProvider) Check(ctx context.Context, req *rpc.CheckRequest) (*rpc.CheckResponse, error) {
-	urn := resource.URN(req.GetUrn())
-	return nil, fmt.Errorf("Unknown resource type '%s'", urn.Type())
+	log.Println("invoked Check")
+	return &rpc.CheckResponse{Inputs: req.News, Failures: nil}, nil
 }
 
 func (k *kubernetesProxyProvider) Diff(ctx context.Context, req *rpc.DiffRequest) (*rpc.DiffResponse, error) {
